@@ -51,17 +51,15 @@ app.use((err, req, res, next) => {
 });
 
 // Connect to MongoDB
-mongoose.connect(process.env.MONGO_URI, {
-   
-});
 
-mongoose.connection.on('connected', () => {
-    console.log('MongoDB connected successfully');
-});
 
-mongoose.connection.on('error', (err) => {
-    console.error('MongoDB connection error:', err);
-});
+mongoose.connect('mongodb+srv://acrobatsakka2299:EgCcxQC5o3GT31Fr@backend.kr42h.mongodb.net/?retryWrites=true&w=majority&appName=Backend', {
+
+  // Add any other options you need here
+})
+.then(() => console.log('MongoDB connected successfully'))
+.catch(err => console.error('MongoDB connection error:', err));
+
 
 // Start the server
 app.listen(port, () => {

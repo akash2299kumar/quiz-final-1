@@ -1,221 +1,250 @@
-const UserModel = require('../models/user');
-const QuizModel = require('../models/quiz');
+const User = require('../models/user');
+const Quiz = require('../models/quiz');
 
-// Helper function to format the current date
-const getFormattedDate = () => {
-    const now = new Date();
-    const day = now.getDate();
-    const monthNames = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul",
-        "Aug", "Sept", "Oct", "Nov", "Dec"
-    ];
-    const month = monthNames[now.getMonth()];
-    const year = now.getFullYear();
-    return `${day} ${month}, ${year}`;
-};
-
+// Function to create a new quiz
 const addNewQuiz = async (req, res, next) => {
     try {
-        const { quizTitle, typeOfQuiz, quizQuestions } = req.body;
+        const { title, quizType, questions } = req.body;
+        const user = await User.findById(req.user_Id);
+        if (!user) {
+            return res.status(401).json({ message: 'User Not Found' });
+        }
 
-        const foundUser = await UserModel.findById(req.userId);
-        if (!foundUser) return res.status(401).json({ message: 'User Not Found' });
+        const currentDate = new Date();
+        const date = currentDate.getDate();
+        const monthNames = [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul",
+            "Aug", "Sept", "Oct", "Nov", "Dec"
+        ];
+        const month = monthNames[currentDate.getMonth()];
+        const year = currentDate.getFullYear();
+        const formattedDate = `${date} ${month}, ${year}`;
 
-        const newQuiz = new QuizModel({
-            title: quizTitle,
-            quizType: typeOfQuiz,
-            createdAt: getFormattedDate(),
-            questions: quizQuestions,
-            userId: foundUser._id
+        const quiz = new Quiz({
+            title,
+            quizType,
+            createdAt: formattedDate,
+            questions,
+            userId: user._id
         });
+        const newQuiz = await quiz.save();
+        const quiz_Id = newQuiz._id;
 
-        const savedQuiz = await newQuiz.save();
-        foundUser.quizList.push(savedQuiz._id);
-        foundUser.quizCount++;
-        foundUser.questionCount += quizQuestions.length;
+        user.quizId.push(newQuiz);
+        user.totalQuizzes++;
+        user.totalQuestions += quiz.questions.length;
+        await user.save();
 
-        await foundUser.save();
-        return res.status(200).json({ msg: 'Quiz Created Successfully', quizId: savedQuiz._id });
+        return res.status(200).json({ msg: 'Quiz Added Successfully', quiz_Id });
     } catch (err) {
-        next(err);
+        return next(err);
     }
 };
 
-const fetchAllQuizzes = async (req, res, next) => {
+// Function to get all quizzes created by the user
+const fetchAllUserQuizzes = async (req, res, next) => {
     try {
-        const foundUser = await UserModel.findById(req.userId);
-        if (!foundUser) return res.status(401).json({ message: 'User Not Found' });
+        const user = await User.findById(req.user_Id);
+        if (!user) {
+            return res.status(401).json({ message: 'User Not Found' });
+        }
 
-        const userQuizzes = await QuizModel.find({ userId: foundUser._id })
-            .select('title impressions questions createdAt');
+        const quizzes = await Quiz.find({ userId: req.user_Id }).select('title quizImpressions questions createdAt');
 
-        return res.status(200).json(userQuizzes);
+        return res.status(200).json(quizzes);
     } catch (err) {
-        next(err);
+        return next(err);
     }
 };
 
-const fetchPopularQuizzes = async (req, res, next) => {
+// Function to get trending quizzes based on impressions
+const fetchTrendingQuizzes = async (req, res, next) => {
     try {
-        const foundUser = await UserModel.findById(req.userId);
-        if (!foundUser) return res.status(401).json({ message: 'User Not Found' });
+        const user = await User.findById(req.user_Id);
+        if (!user) {
+            return res.status(401).json({ message: 'User Not Found' });
+        }
 
-        const popularQuizzes = await QuizModel.find({
-            userId: foundUser._id,
-            impressions: { $gt: 10 }
-        });
+        const quizzes = await Quiz.find({ userId: req.user_Id, quizImpressions: { $gt: 10 } });
 
-        return res.status(200).json(popularQuizzes);
+        return res.status(200).json(quizzes);
     } catch (err) {
-        next(err);
+        return next(err);
     }
 };
 
-const fetchQuizDetails = async (req, res, next) => {
+// Function to get quiz details by ID
+const fetchQuizById = async (req, res, next) => {
     try {
         const { quizId } = req.params;
 
-        const quizDetails = await QuizModel.findById(quizId);
-        if (!quizDetails) return res.status(404).json({ message: 'Quiz Not Found' });
+        const quiz = await Quiz.findById(quizId);
+        if (!quiz) {
+            return res.status(404).json({ message: 'Quiz Not Found' });
+        }
 
-        const associatedUser = await UserModel.findById(quizDetails.userId);
-        if (!associatedUser) return res.status(401).json({ message: 'User Not Found' });
+        const userId = quiz.userId[0].toString();
+        const user = await User.findById(userId);
 
-        quizDetails.impressions++;
-        associatedUser.totalImpressions++;
+        if (!user) {
+            return res.status(401).json({ message: 'User Not Found' });
+        }
 
-        await quizDetails.save();
-        await associatedUser.save();
+        quiz.quizImpressions++;
+        user.totalImpressions++;
 
-        return res.status(200).json({ quiz: quizDetails });
+        await user.save();
+        await quiz.save();
+        return res.status(200).json({ quiz });
     } catch (err) {
-        next(err);
+        return next(err);
     }
 };
 
+// Function to delete a quiz by ID
 const removeQuizById = async (req, res, next) => {
     try {
         const { quizId } = req.params;
 
-        const foundUser = await UserModel.findById(req.userId);
-        if (!foundUser) return res.status(401).json({ message: 'User Not Found' });
+        const user = await User.findById(req.user_Id);
+        if (!user) {
+            return res.status(401).json({ message: 'User Not Found' });
+        }
 
-        const quizToDelete = await QuizModel.findById(quizId);
-        if (!quizToDelete) return res.status(404).json({ message: 'Quiz Not Found' });
+        const quiz = await Quiz.findById(quizId);
+        if (!quiz) {
+            return res.status(404).json({ error: 'Quiz Not Found' });
+        }
+        const tot_ques = quiz.questions.length;
+        const tot_imp = quiz.quizImpressions;
 
-        const { questions, impressions } = quizToDelete;
+        const deletedQuiz = await Quiz.findByIdAndDelete(quizId);
+        if (!deletedQuiz) {
+            return res.status(404).json({ error: 'Quiz Not Found' });
+        }
 
-        await quizToDelete.remove();
+        user.quizId = user.quizId.filter((each) => each.toString() !== quizId);
+        user.totalQuizzes -= 1;
+        user.totalQuestions -= tot_ques;
+        user.totalImpressions -= tot_imp;
+        await user.save();
 
-        foundUser.quizList = foundUser.quizList.filter(id => id.toString() !== quizId);
-        foundUser.quizCount--;
-        foundUser.questionCount -= questions.length;
-        foundUser.totalImpressions -= impressions;
+        const quizzes = await Quiz.find({ userId: req.user_Id }).select('title quizImpressions createdAt');
 
-        await foundUser.save();
-
-        const updatedQuizzes = await QuizModel.find({ userId: foundUser._id })
-            .select('title impressions createdAt');
-
-        return res.status(200).json({ msg: 'Quiz Deleted Successfully', quizzes: updatedQuizzes });
+        return res.status(200).json({ msg: 'Quiz Deleted', quizzes });
     } catch (err) {
-        next(err);
+        return next(err);
     }
 };
 
+// Function to get analytics for a specific quiz
 const fetchQuizAnalytics = async (req, res, next) => {
     try {
-        const quizDetails = await QuizModel.findById(req.params.quizId);
-        if (!quizDetails) return res.status(404).json({ message: 'Quiz Not Found' });
+        const quiz = await Quiz.findById(req.params.quizId);
+        if (!quiz) {
+            return res.status(404).json({ message: 'Quiz not found' });
+        }
 
-        const foundUser = await UserModel.findById(req.userId);
-        if (!foundUser) return res.status(401).json({ message: 'User Not Found' });
+        const user = await User.findById(req.user_Id);
+        if (!user) {
+            return res.status(401).json({ message: 'User Not Found' });
+        }
 
-        const analyticsData = quizDetails.questions.map((question) => {
-            if (quizDetails.quizType === 'qna') {
+        const analytics = quiz.questions.map((question) => {
+            if (quiz.quizType === 'qna') {
                 return {
                     attempts: question.attempts,
                     correctCount: question.correctCount,
                     incorrectCount: question.incorrectCount
                 };
-            } else if (quizDetails.quizType === 'poll') {
+            } else if (quiz.quizType === 'poll') {
+                const optionAnalytics = question.options.map((option, index) => ({
+                    optionIndex: index,
+                    text: option.text,
+                    imageUrl: option.imageUrl,
+                    selectedCount: option.selectedCount,
+                }));
                 return {
                     attempts: question.attempts,
-                    options: question.options.map((option, index) => ({
-                        index,
-                        text: option.text,
-                        imageUrl: option.imageUrl,
-                        selectedCount: option.selectedCount,
-                    }))
+                    options: optionAnalytics
                 };
             }
         });
 
-        return res.status(200).json({
-            createdAt: quizDetails.createdAt,
-            title: quizDetails.title,
-            analytics: analyticsData,
-            totalImpressions: foundUser.totalImpressions,
-            quizType: quizDetails.quizType
-        });
-    } catch (err) {
-        next(err);
+        const { createdAt: quizCreation, title: quizTitle, quizType } = quiz;
+        const { totalImpressions: impressions } = user;
+
+        return res.status(200).json({ quizCreation, quizTitle, analytics, impressions, quizType });
+    } catch (error) {
+        next(error);
     }
 };
 
+// Function to attempt a quiz
 const submitQuizAttempt = async (req, res, next) => {
     try {
         const { answers } = req.body;
 
-        const quizDetails = await QuizModel.findById(req.params.id);
-        if (!quizDetails) return res.status(404).json({ message: 'Quiz Not Found' });
+        const quiz = await Quiz.findById(req.params.id);
+        if (!quiz) {
+            return res.status(404).json({ message: 'Quiz not found' });
+        }
 
-        let correctAnswers = 0;
-        let incorrectAnswers = 0;
+        let tot_correct = 0;
+        let tot_incorrect = 0;
 
-        quizDetails.questions.forEach((question, index) => {
-            if (quizDetails.quizType === 'qna') {
-                if (question.correctOption == answers[index]) {
-                    correctAnswers++;
-                    question.correctCount++;
+        if (quiz.quizType === 'qna') {
+            quiz.questions.forEach((question, qIndex) => {
+                if (question.correctOption == answers[qIndex]) {
+                    tot_correct++;
                 } else {
-                    incorrectAnswers++;
-                    question.incorrectCount++;
+                    tot_incorrect++;
                 }
-            } else if (quizDetails.quizType === 'poll') {
-                question.options[answers[index]].selectedCount++;
-            }
-            question.attempts++;
-        });
+                question.attempts++;
+                question.correctCount += tot_correct;
+                question.incorrectCount += tot_incorrect;
+            });
+        } else {
+            quiz.questions.forEach((question, qIndex) => {
+                question.options[answers[qIndex]].selectedCount += 1;
+                question.attempts++;
+            });
+        }
 
-        await quizDetails.save();
-        return res.status(200).json({ score: correctAnswers });
+        await quiz.save();
+        res.status(200).json({ score: tot_correct });
     } catch (err) {
-        next(err);
+        return next(err);
     }
 };
 
+// Function to update a quiz
 const modifyQuiz = async (req, res, next) => {
     try {
         const { quizId } = req.params;
 
-        const foundUser = await UserModel.findById(req.userId);
-        if (!foundUser) return res.status(401).json({ message: 'User Not Found' });
+        const user = await User.findById(req.user_Id);
+        if (!user) {
+            return res.status(401).json({ message: 'User Not Found' });
+        }
 
-        const quizToUpdate = await QuizModel.findByIdAndUpdate(quizId, req.body, { new: true });
-        if (!quizToUpdate) return res.status(404).json({ message: 'Quiz Not Found' });
+        const updatedQuiz = await Quiz.findByIdAndUpdate(quizId, req.body, { new: true });
+        if (!updatedQuiz) {
+            return res.status(404).json({ message: 'Quiz not found' });
+        }
 
-        return res.status(200).json({ message: 'Quiz Updated Successfully', quiz: quizToUpdate });
+        await updatedQuiz.save();
+        return res.status(200).json({ message: 'Quiz updated successfully', updatedQuiz });
     } catch (err) {
-        next(err);
+        return next(err);
     }
 };
 
 module.exports = {
     addNewQuiz,
-    fetchAllQuizzes,
-    fetchPopularQuizzes,
-    fetchQuizDetails,
+    fetchAllUserQuizzes,
+    fetchTrendingQuizzes,
+    fetchQuizById,
     removeQuizById,
     fetchQuizAnalytics,
     submitQuizAttempt,

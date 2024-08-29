@@ -14,7 +14,11 @@ const app = express();
 const port = process.env.PORT || 3001;
 
 // Enable CORS
-app.use(cors());
+app.use(cors({
+    origin: 'http://localhost:5173',
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true
+  }));
 
 // Middleware for logging requests
 app.use((req, res, next) => {
